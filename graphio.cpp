@@ -1,5 +1,15 @@
 /******************************************************************************
-Copyright 2013 Royal Caliber LLC. (http://www.royal-caliber.com)
+Copyright 2013 SYSTAP, LLC. http://www.systap.com
+
+Written by Erich Elsen and Vishal Vaidyanathan
+of Royal Caliber, LLC
+Contact us at: info@royal-caliber.com
+
+This file was taken from mpgraph v0.1 which was (partially) funded by the
+DARPA XDATA program under AFRL Contract #FA8750-13-C-0002.  The file has
+been modified by Royal Caliber, LLC.
+
+Copyright 2013, 2014 Royal Caliber LLC. (http://www.royal-caliber.com)
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -21,6 +31,7 @@ limitations under the License.
 #include <string.h>
 #include <iostream>
 #include <cstdlib>
+#include <stdint.h>
 
 using namespace std;
 
@@ -251,6 +262,182 @@ int loadGraph_MatrixMarket( const char* fname
 }
 
 
+//Lonestar format binary CSR
+//Format: all data is little endian
+//8-byte version
+//8-byte unsigned nVertices
+//8-byte unsigned nEdges
+//8-byte * nVertices ending offsets into dsts array
+//4-byte * nEdges dst indices, padded to 8-byte boundary at end
+//4-byte * nEdges unsigned edge data
+//This loader assumes a little endian host.
+int loadGraph_binaryCSR(const char* fname
+  , int &nVertices, std::vector<int> &srcs, std::vector<int> &dsts
+  , std::vector<int> *edgeValues, bool expand)
+{
+  #define CHK_FREAD(ptr, sz, count, stream) \
+    if (fread(ptr, sz, count, stream) != count) \
+    { \
+      cerr << "error reading lonestar binary CSR file " << fname << endl; \
+      exit(1); \
+    } \
+  
+  FILE* f = fopen(fname, "r");
+  if (!f)
+  {
+    cerr << "unable to open file " << fname << endl;
+    exit(1);
+  }
+  
+  uint64_t version;
+  CHK_FREAD(&version, 8, 1, f);
+  printf("file version = %lu\n", version);
+
+  uint64_t sizeEdgeType;
+  CHK_FREAD(&sizeEdgeType, 8, 1, f);
+  if (sizeEdgeType == 0 && edgeValues)
+  {
+    cerr << "file does not have edge values" << endl;
+    exit(1);
+  }
+  else if (sizeEdgeType != 4)
+  {
+    cerr << "file edge data is " << sizeEdgeType << " bytes wide" << endl;
+    exit(1);
+  }
+
+  uint64_t nVertices64;
+  CHK_FREAD(&nVertices64, 8, 1, f);
+  nVertices = nVertices64;
+  printf("nVertices = %lu\n", nVertices64);
+
+  uint64_t nEdges;
+  CHK_FREAD(&nEdges, 8, 1, f);
+  printf("nEdges = %lu\n", nEdges);
+
+  dsts.resize(nEdges);
+  if (expand)
+    srcs.resize(nEdges);
+  else
+    srcs.resize(nVertices + 1);
+
+  //read in the offsets
+  std::vector<uint64_t> tmp(nVertices);
+  CHK_FREAD(&tmp[0], 8, nVertices, f);
+  printf("read in %d offsets\n", nVertices);
+
+  //read in dst indices and consume padding if any
+  CHK_FREAD(&dsts[0], 4, nEdges, f);
+  printf("read in %lu dsts\n", nEdges);
+
+  if (nEdges % 2)
+  {
+    uint32_t dummy;
+    CHK_FREAD(&dummy, 4, 1, f);
+  }
+
+  if (expand)
+  {
+    int j = 0;
+    for (int i = 0; i < nVertices; ++i)
+    {
+      for (; j < tmp[i]; ++j)
+        srcs[j] = i;
+    }
+  }
+  else
+  {
+    for (int i = 0; i < nVertices; ++i)
+      srcs[i + 1] = tmp[i];
+  }
+
+  if (edgeValues)
+  {
+    edgeValues->resize(nEdges);
+    CHK_FREAD(&((*edgeValues)[0]), 4, nEdges, f);
+  }
+  
+  fclose(f);
+  #undef CHK_FREAD
+}
+
+
+int writeGraph_binaryCSR(const char* fname
+  , int nVertices, int nEdges, const int *offsets, const int* dsts
+  , const int *edgeValues)
+{
+  FILE *f = fopen(fname, "w");
+  if (!f)
+  {
+    cerr << "unable to write to file " << fname << endl;
+    exit(1);
+  }
+  
+  uint64_t u64;
+
+  //version
+  u64 = 1; 
+  fwrite(&u64, 8, 1, f); 
+
+  //sizeEdgeType
+  u64 = edgeValues ? 4 : 0;
+  fwrite(&u64, 8, 1, f);
+
+  //nVertices
+  u64 = nVertices;
+  fwrite(&u64, 8, 1, f);
+
+  //nEdges
+  u64 = nEdges;
+  fwrite(&u64, 8, 1, f);
+
+  //write offsets, without first zero
+  std::vector<uint64_t> tmp(nVertices);
+  for (int i = 0; i < nVertices; ++i)
+    tmp[i] = offsets[i + 1];
+  fwrite(&tmp[0], 8, nVertices, f);
+
+  //write dsts, add padding
+  fwrite(dsts, 4, nEdges, f);
+  if (nEdges % 2)
+  {
+    uint32_t pad = 0;
+    fwrite(&pad, 4, 1, f);
+  }
+
+  //write edge values if present
+  if (edgeValues)
+    fwrite(edgeValues, 4, nEdges, f);
+  
+  fclose(f);
+} 
+
+
+int writeGraph_mtx(const char* fname, int nVertices, int nEdges
+  , const int *srcs, const int *dsts, const int* edgeValues)
+{
+  FILE *f = fopen(fname, "w");
+  if (!f)
+  {
+    cerr << "unable to write to file " << fname << endl;
+    exit(1);
+  }
+  fprintf(f, "%%MatrixMarket matrix coordinate Integer general\n");
+  fprintf(f, "%d %d %d\n", nVertices, nVertices, nEdges);
+  if (edgeValues)
+  {
+    for (int i = 0; i < nEdges; ++i)
+      fprintf(f, "%d %d %d\n", srcs[i]+1, dsts[i]+1, edgeValues[i]);
+  }
+  else
+  {
+    for (int i = 0; i < nEdges; ++i)
+      fprintf(f, "%d %d\n", srcs[i]+1, dsts[i]+1);
+  }
+  fclose(f);
+}
+
+
 int loadGraph( const char* fname
   , int &nVertices
   , std::vector<int> &srcs
@@ -274,6 +461,8 @@ int loadGraph( const char* fname
     return loadGraph_GraphLabSnap( fname, nVertices, srcs, dsts );
   else if( strncmp( p, ".mtx", 4 ) == 0 )
     return loadGraph_MatrixMarket( fname, nVertices, srcs, dsts, edgeValues );
+  else if( strncmp( p, ".gr", 3 ) == 0 )
+    return loadGraph_binaryCSR( fname, nVertices, srcs, dsts, edgeValues, true );
   else
   {
     cerr << "unrecognized filetype extension " << p << endl;

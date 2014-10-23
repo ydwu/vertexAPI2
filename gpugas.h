@@ -62,6 +62,7 @@ Implementation Notes(VV):
 #include "moderngpu.cuh"
 #include "primitives/scatter_if_mgpu.h"
 #include "util.h"
+#include "cuda_util.h"
 
 //using this because CUB device-wide reduce_by_key does not yet work
 //and I am still working on a fused gatherMap/gatherReduce kernel.
@@ -183,7 +184,6 @@ private:
       CHECK( cudaFree(ptr) );
   }
 
-
   dim3 calcGridDim(Int n)
   {
     if (n < 65536)
@@ -211,6 +211,9 @@ private:
     for( Int i = 0; i < n; ++i )
       std::cout << i << " " << tmp[i] << std::endl;
   }
+
+  //profiling
+  cudaEvent_t m_ev0, m_ev1;
 
   public:
     GASEngineGPU()
@@ -240,7 +243,7 @@ private:
       , m_outputEdgeList(0)
       , preComputed(false)
     {
-      m_mgpuContext = mgpu::CreateCudaDevice(1);
+      m_mgpuContext = mgpu::CreateCudaDevice(0);
     }
 
 
@@ -388,6 +391,9 @@ private:
       else {
         gpuAlloc(m_outputEdgeList, m_nEdges / 100 + 1);
       }
+
+      cudaEventCreate(&m_ev0);
+      cudaEventCreate(&m_ev1);
     }
 
 
@@ -692,7 +698,7 @@ private:
       }
     };
 
-    struct ListOutputIterator
+    struct ListOutputIterator : public std::iterator<std::output_iterator_tag, Int>
     {
       int* m_inputlist;
       int* m_outputlist;
@@ -761,6 +767,7 @@ private:
         //dst vertex into m_activeFlags
         CHECK( cudaMemset(m_activeFlags, 0, sizeof(char) * m_nVertices) );
 
+        //CHECK( cudaEventRecord(m_ev0) );
         IntervalGather(nActiveEdges
           , ActivateGatherIterator(m_dstOffsets, m_active)
           , m_edgeCountScan
@@ -768,6 +775,10 @@ private:
           , m_dsts
           , ActivateOutputIterator(m_activeFlags)
           , *m_mgpuContext);
+        //CHECK( cudaEventRecord(m_ev1) ) ;
+        float elapsedTime;
+        //CHECK( cudaEventElapsedTime(&elapsedTime, m_ev0, m_ev1) );
+        //printf("m_nActive = %d\n, expand took %f ms\n", m_nActive, elapsedTime);
         SYNC_CHECK();
 
         //convert m_activeFlags to new active compact list in m_active
@@ -834,10 +845,6 @@ private:
         nextIter();
       }
     }
-
-    //remove macro clutter
-    #undef CHECK
-    #undef SYNC_CHECK
 };
 
 

@@ -1,5 +1,15 @@
 /******************************************************************************
-Copyright 2013 Royal Caliber LLC. (http://www.royal-caliber.com)
+Copyright 2013 SYSTAP, LLC. http://www.systap.com
+
+Written by Erich Elsen and Vishal Vaidyanathan
+of Royal Caliber, LLC
+Contact us at: info@royal-caliber.com
+
+This file was taken from mpgraph v0.1 which was (partially) funded by the
+DARPA XDATA program under AFRL Contract #FA8750-13-C-0002.  The file has
+been modified by Royal Caliber, LLC.
+
+Copyright 2013, 2014 Royal Caliber LLC. (http://www.royal-caliber.com)
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -37,11 +47,32 @@ int loadGraph_MatrixMarket( const char* fname
   , std::vector<int> *edgeValues );
 
 
+//Read in a binary CSR graph (Lonestar format)
+//If expand is true, converts CSR into list of edges
+//to be compatible with the other loaders, otherwise
+//the argument srcs will contain nVertices + 1 offsets
+int loadGraph_binaryCSR(const char* fname
+  , int &nVertices
+  , std::vector<int> &srcs
+  , std::vector<int> &dsts
+  , std::vector<int> *edgeValues
+  , bool expand = true);
+
+
 //Detects the filetype from the extension
 int loadGraph( const char* fname
   , int &nVertices
   , std::vector<int> &srcs
   , std::vector<int> &dsts
   , std::vector<int> *edgeValues = 0);
+
+
+//write out a lonestar format binary csr file
+int writeGraph_binaryCSR(const char* fname
+  , int nVertices, int nEdges, const int *offsets, const int* dsts
+  , const int *edgeValues);
+  
+int writeGraph_mtx(const char* fname, int nVertices, int nEdges
+  , const int *srcs, const int *dsts, const int* edgeValues);
 
 #endif
