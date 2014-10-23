@@ -139,6 +139,83 @@ private:
 
   //profiling
   cudaEvent_t m_ev0, m_ev1;
+  //convenience
+  void errorCheck(cudaError_t err, const char* file, int line)
+  {
+    if( err != cudaSuccess )
+    {
+      printf("%s(%d): cuda error %d (%s)\n", file, line, err, cudaGetErrorString(err));
+      abort();
+    }
+  }
+
+  //use only for debugging kernels
+  //this slows stuff down a LOT
+  void syncAndErrorCheck(const char* file, int line)
+  {
+    cudaThreadSynchronize();
+    errorCheck(cudaGetLastError(), file, line);
+  }
+
+  //this is undefined at the end of this template definition
+  #define CHECK(X) errorCheck(X, __FILE__, __LINE__)
+  #define SYNC_CHECK() syncAndErrorCheck(__FILE__, __LINE__)
+
+  template<typename T>
+  void gpuAlloc(T* &p, Int n)
+  {
+    CHECK( cudaMalloc(&p, sizeof(T) * n) );
+  }
+
+  template<typename T>
+  void copyToGPU(T* dst, const T* src, Int n)
+  {
+    CHECK( cudaMemcpy(dst, src, sizeof(T) * n, cudaMemcpyHostToDevice) );
+  }
+
+  template<typename T>
+  void copyToHost(T* dst, const T* src, Int n)
+  {
+    //error check please!
+    CHECK( cudaMemcpy(dst, src, sizeof(T) * n, cudaMemcpyDeviceToHost) );
+  }
+
+  void gpuFree(void *ptr)
+  {
+    if( ptr )
+      CHECK( cudaFree(ptr) );
+  }
+
+  dim3 calcGridDim(Int n)
+  {
+    if (n < 65536)
+      return dim3(n, 1, 1);
+    else {
+      int side1 = static_cast<int>(sqrt((double)n));
+      int side2 = static_cast<int>(ceil((double)n / side1));
+      return dim3(side2, side1, 1);
+    }
+  }
+
+
+  Int divRoundUp(Int x, Int y)
+  {
+    return (x + y - 1) / y;
+  }
+
+
+  //for debugging
+  template<typename T>
+  void printGPUArray(T* ptr, int n)
+  {
+    std::vector<T> tmp(n);
+    copyToHost(&tmp[0], ptr, n);
+    for( Int i = 0; i < n; ++i )
+      std::cout << i << " " << tmp[i] << std::endl;
+  }
+
+  //profiling
+  cudaEvent_t m_ev0, m_ev1;
 
   public:
     GASEngineGPU()
