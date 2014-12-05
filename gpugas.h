@@ -62,7 +62,7 @@ Implementation Notes(VV):
 #include "moderngpu.cuh"
 #include "primitives/scatter_if_mgpu.h"
 #include "util.h"
-#include "cuda_util.h"
+//#include "cuda_util.h"
 
 //using this because CUB device-wide reduce_by_key does not yet work
 //and I am still working on a fused gatherMap/gatherReduce kernel.
@@ -215,7 +215,7 @@ private:
   }
 
   //profiling
-  cudaEvent_t m_ev0, m_ev1;
+  //cudaEvent_t m_ev0, m_ev1;
 
   public:
     GASEngineGPU()
@@ -778,7 +778,7 @@ private:
           , ActivateOutputIterator(m_activeFlags)
           , *m_mgpuContext);
         //CHECK( cudaEventRecord(m_ev1) ) ;
-        float elapsedTime;
+        //float elapsedTime;
         //CHECK( cudaEventElapsedTime(&elapsedTime, m_ev0, m_ev1) );
         //printf("m_nActive = %d\n, expand took %f ms\n", m_nActive, elapsedTime);
         SYNC_CHECK();
