@@ -54,15 +54,12 @@ Implementation Notes(VV):
    neighborhood or not.
 */
 
-
-
 #include "gpugas_kernels.cuh"
 #include <vector>
 #include <iterator>
 #include "moderngpu.cuh"
 #include "primitives/scatter_if_mgpu.h"
-#include "util.h"
-//#include "cuda_util.h"
+#include "util.cuh"
 
 //using this because CUB device-wide reduce_by_key does not yet work
 //and I am still working on a fused gatherMap/gatherReduce kernel.

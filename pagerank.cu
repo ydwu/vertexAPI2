@@ -17,7 +17,7 @@ limitations under the License.
 
 #include "refgas.h"
 #include "gpugas.h"
-#include "util.h"
+#include "util.cuh"
 #include "graphio.h"
 #include <vector>
 #include <iostream>
@@ -25,10 +25,10 @@ limitations under the License.
 
 //Vertex program for Pagerank
 struct PageRank
-{  
+{
   static const float pageConst = 0.15f;
   static const float tol = 0.01f;
-    
+
   struct VertexData
   {
     float rank;
@@ -126,7 +126,7 @@ int main(int argc, char **argv)
   std::vector<int> srcOffsets(nVertices + 1);
   std::vector<int> csrSrcs(srcs.size());
   edgeListToCSR<int>(nVertices, srcs.size(), &srcs[0], &dsts[0], &srcOffsets[0], 0, 0);
-  
+
   std::vector<PageRank::VertexData> vertexData(nVertices);
   for( int i = 0; i < nVertices; ++i )
     vertexData[i].numOutEdges = srcOffsets[i + 1] - srcOffsets[i];
@@ -179,7 +179,7 @@ int main(int argc, char **argv)
 
   free(inputFilename);
   free(outputFilename);
-  
+
   return 0;
 }
 

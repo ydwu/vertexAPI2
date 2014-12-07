@@ -16,7 +16,7 @@ limitations under the License.
 
 //Utility to convert .gr to mtx for programs that can't read gr
 
-#include "util.h"
+#include "util.cuh"
 #include "graphio.h"
 
 int main(int argc, char **argv)

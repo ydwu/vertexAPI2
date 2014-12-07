@@ -16,7 +16,7 @@ limitations under the License.
 
 //Utility to convert mtx files to .gr for faster loading.
 
-#include "util.h"
+#include "util.cuh"
 #include "graphio.h"
 
 int main(int argc, char **argv)

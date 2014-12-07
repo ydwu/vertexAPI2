@@ -16,7 +16,7 @@ limitations under the License.
 
 //BFS using vertexAPI2
 
-#include "util.h"
+#include "util.cuh"
 #include "graphio.h"
 #include "refgas.h"
 #include "gpugas.h"
@@ -48,7 +48,8 @@ struct BFS
 
 
   __host__ __device__
-  static int gatherMap(const VertexData* dst, const VertexData *src, const EdgeData* edge)
+  static int gatherMap(
+    const VertexData* dst, const VertexData *src, const EdgeData* edge)
   {
     return 0; //do nothing
   }
@@ -63,7 +64,7 @@ struct BFS
         vert->depth = g_iterationCountGPU;
       #else
         vert->depth = g_iterationCount;
-      #endif        
+      #endif
       return true;
     }
     return false;
@@ -71,7 +72,8 @@ struct BFS
 
 
   __host__ __device__
-  static void scatter(const VertexData* src, const VertexData *dst, EdgeData* edge)
+  static void scatter(
+    const VertexData* src, const VertexData *dst, EdgeData* edge)
   {
     //nothing
   }
@@ -89,26 +91,45 @@ void setIterationCount(int v)
 
 
 template<typename Engine, bool GPU>
-void run(int nVertices, BFS::VertexData* vertexData, int nEdges
+float run(int nVertices, BFS::VertexData* vertexData, int nEdges
   , const int *srcs, const int *dsts, int sourceVertex)
 {
   Engine engine;
-  engine.setGraph(nVertices, vertexData, nEdges, 0, &srcs[0], &dsts[0]);
-  engine.setActive(sourceVertex, sourceVertex+1);
-  int iter = 0;
-  setIterationCount<GPU>(iter);
-  int64_t t0 = currentTime();
-  while( engine.countActive() )
+  int iteration;
+
+  GpuTimer gpu_timer;
+  float elapsed = 0.0f;
+
+  // average elapsed time of 10 runs
+  for (int itr = 0; itr < 10; ++itr)
   {
-    //run apply without gather
-    engine.gatherApply(false);
-    engine.scatterActivate(false);
-    engine.nextIter();
-    setIterationCount<GPU>(++iter);
+    // reset the graph
+    for(int i = 0; i < nVertices; ++i) vertexData[i].depth = -1;
+    engine.setGraph(nVertices, vertexData, nEdges, 0, &srcs[0], &dsts[0]);
+    engine.setActive(sourceVertex, sourceVertex+1);
+    iteration = 0;
+    setIterationCount<GPU>(iteration);
+
+    gpu_timer.Start();
+
+    while( engine.countActive() )
+    {
+      //run apply without gather
+      engine.gatherApply(false);
+      engine.scatterActivate(false);
+      engine.nextIter();
+      setIterationCount<GPU>(++iteration);
+    }
+    engine.getResults();
+
+    gpu_timer.Stop();
+    elapsed += gpu_timer.ElapsedMillis();
   }
-  engine.getResults();
-  int64_t t1 = currentTime();
-  printf("Took %f ms\n", (t1 - t0)/1000.0f);
+
+  elapsed /= 10;
+  // printf("Took %f ms\n", elapsed);
+  printf("search depth (number of iterations): %d\n", iteration);
+  return elapsed;
 }
 
 
@@ -127,7 +148,7 @@ int main(int argc, char** argv)
   bool runTest;
   bool dumpResults;
   bool useMaxOutDegreeStart;
-  if( !parseCmdLineSimple(argc, argv, "si-t-d-m|s", &inputFilename, &sourceVertex
+  if(!parseCmdLineSimple(argc, argv, "si-t-d-m|s", &inputFilename, &sourceVertex
     , &runTest, &dumpResults, &useMaxOutDegreeStart, &outputFilename) )
   {
     printf("Usage: bfs [-t] [-d] [-m] inputfile source [outputFilename]\n");
@@ -150,7 +171,8 @@ int main(int argc, char** argv)
     //convert to CSR layout to find source vertex
     std::vector<int> srcOffsets(nVertices + 1);
     std::vector<int> csrSrcs(srcs.size());
-    edgeListToCSR<int>(nVertices, srcs.size(), &srcs[0], &dsts[0], &srcOffsets[0], 0, 0);
+    edgeListToCSR<int>(
+      nVertices, srcs.size(), &srcs[0], &dsts[0], &srcOffsets[0], 0, 0);
     int maxDegree = -1;
     sourceVertex = -1;
     for(int i = 0; i < nVertices; ++i)
@@ -162,15 +184,16 @@ int main(int argc, char** argv)
         sourceVertex = i;
       }
     }
-    printf("using vertex %d with degree %d as source\n", sourceVertex, maxDegree);
-  }  
-    
+    printf(
+      "using vertex %d with degree %d as source\n", sourceVertex, maxDegree);
+  }
+
   std::vector<BFS::VertexData> refVertexData;
   if( runTest )
   {
     refVertexData = vertexData;
-    run<GASEngineRef<BFS>, false>(nVertices, &refVertexData[0], (int)srcs.size()
-      , &srcs[0], &dsts[0], sourceVertex);
+    float elapsed = run<GASEngineRef<BFS>, false>(nVertices
+      , &refVertexData[0], (int)srcs.size(), &srcs[0], &dsts[0], sourceVertex);
     if( dumpResults )
     {
       printf("Reference:\n");
@@ -178,8 +201,30 @@ int main(int argc, char** argv)
     }
   }
 
-  run<GASEngineGPU<BFS>, true>(nVertices, &vertexData[0], (int) srcs.size()
-    , &srcs[0], &dsts[0], sourceVertex);
+  float elapsed = run<GASEngineGPU<BFS>, true>(nVertices, &vertexData[0]
+    , (int) srcs.size(), &srcs[0], &dsts[0], sourceVertex);
+
+  // compute stats
+  int nodes_visited = 0;
+  int edges_visited = 0;
+  std::vector<int> srcOffsets(nVertices + 1);
+  std::vector<int> csrSrcs(srcs.size());
+  edgeListToCSR<int>(
+    nVertices, srcs.size(), &srcs[0], &dsts[0], &srcOffsets[0], 0, 0);
+
+  for (int itr = 0; itr < nVertices; ++itr)
+  {
+    if (vertexData[itr].depth > -1)
+    {
+      nodes_visited += 1;
+      edges_visited += srcOffsets.at(itr+1) - srcOffsets.at(itr);
+    }
+  }
+
+  printf("nodes visited: %d edges visited: %d\n", nodes_visited, edges_visited);
+  float m_teps = (float) edges_visited / (elapsed * 1000);
+  printf("elapsed: %.4f ms, MTEPS: %.4f MiEdges/s\n", elapsed, m_teps);
+
   if( dumpResults )
   {
     printf("GPU:\n");

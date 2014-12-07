@@ -20,7 +20,7 @@ limitations under the License.
 #include <vector>
 #include <stdio.h>
 
-#include "util.h"
+#include "util.cuh"
 
 //Reference implementation, useful for correctness checking
 //and prototyping interfaces.
@@ -65,7 +65,7 @@ class GASEngineRef
 
     ~GASEngineRef(){}
 
-  
+
     //initialize the graph data structures for the GPU
     //All the graph data provided here is "owned" by the GASEngine until
     //explicitly released with getResults().  We may make a copy or we
@@ -208,7 +208,7 @@ class GASEngineRef
       }
       return countActive();
     }
-  
+
 
     //single entry point for the whole affair, like before.
     //Need to improve the key steps to make it more flexible.
@@ -222,7 +222,7 @@ class GASEngineRef
         nextIter();
       }
     }
-};  
+};
 
 
 

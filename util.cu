@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ******************************************************************************/
 
-#include "util.h"
+#include "util.cuh"
 #include <cstdarg>
 #include <cstring>
 #include <cstdio>
@@ -49,7 +49,7 @@ int parseCmdLineSimple(int argc, char** argv, const char* fmt, ...)
     }
   }
 
-  //now go through positional arguments  
+  //now go through positional arguments
   va_list args;
   va_start(args, fmt);
   int iArg = 1;
@@ -82,7 +82,7 @@ int parseCmdLineSimple(int argc, char** argv, const char* fmt, ...)
         else
           return 1;
       }
-      
+
       switch( *f )
       {
         case 's': *(va_arg(args, char**)) = strdup(argv[iArg]); break;

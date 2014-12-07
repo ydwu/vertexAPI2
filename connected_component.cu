@@ -16,7 +16,7 @@ limitations under the License.
 
 //Connected Component using vertexAPI2
 
-#include "util.h"
+#include "util.cuh"
 #include "graphio.h"
 #include "refgas.h"
 #include "gpugas.h"
@@ -125,7 +125,7 @@ int main(int argc, char** argv)
     {
       printf("Reference:\n");
       outputLabels(nVertices, &refVertexData[0]);
-    }  
+    }
   }
 
   run< GASEngineGPU<CC> >(nVertices, &vertexData[0], (int)srcs.size()

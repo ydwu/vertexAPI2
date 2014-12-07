@@ -16,7 +16,7 @@ limitations under the License.
 
 //Single source shortest paths using vertexAPI2
 
-#include "util.h"
+#include "util.cuh"
 #include "graphio.h"
 #include "refgas.h"
 #include "gpugas.h"
@@ -41,7 +41,8 @@ struct SSSP
 
 
   __host__ __device__
-  static int gatherMap(const VertexData* dstDist, const VertexData *srcDist, const EdgeData* edgeLen)
+  static int gatherMap(
+    const VertexData* dstDist, const VertexData *srcDist, const EdgeData* edgeLen)
   {
     return *srcDist + *edgeLen;
   }
@@ -57,7 +58,8 @@ struct SSSP
 
 
   __host__ __device__
-  static void scatter(const VertexData* src, const VertexData *dst, EdgeData* edge)
+  static void scatter(
+    const VertexData* src, const VertexData *dst, EdgeData* edge)
   {
     //nothing
   }
@@ -65,20 +67,46 @@ struct SSSP
 
 
 template<typename Engine>
-void run(int nVertices, SSSP::VertexData* vertexData, int nEdges
+float run(int srcVertex, int nVertices, SSSP::VertexData* vertexData, int nEdges
   , SSSP::EdgeData* edgeData, const int* srcs, const int* dsts)
 {
   Engine engine;
-  engine.setGraph(nVertices, vertexData, nEdges, edgeData, srcs, dsts);
 
-  //TODO, setting all vertices to active for first step works, but it would
-  //be faster to instead set to neighbors of starting vertex
-  engine.setActive(0, nVertices);
-  int64_t t0 = currentTime();
-  engine.run();
-  engine.getResults();
-  int64_t t1 = currentTime();
-  printf("Took %f ms\n", (t1 - t0)/1000.0f);
+  GpuTimer gpu_timer;
+  float elapsed = 0.0f;
+  int iteration = 0;
+
+  // average elapsed time of 10 runs
+  for (int itr = 0; itr < 10; ++itr)
+  {
+    // reset the graph
+    for(int i = 0; i < nVertices; ++i) vertexData[i] = SSSP::gatherZero;
+    vertexData[srcVertex] = 0;
+    engine.setGraph(nVertices, vertexData, nEdges, edgeData, srcs, dsts);
+
+    //TODO, setting all vertices to active for first step works, but it would
+    //be faster to instead set to neighbors of starting vertex
+    engine.setActive(0, nVertices);
+
+    gpu_timer.Start();
+
+    while (engine.countActive())
+    {
+      engine.gatherApply();
+      engine.scatterActivate();
+      engine.nextIter();
+      ++iteration;
+    }
+
+    engine.getResults();
+
+    gpu_timer.Stop();
+    elapsed += gpu_timer.ElapsedMillis();
+  }
+
+  elapsed /= 10;
+  printf("number of iterations: %d\n", iteration);
+  return elapsed;
 }
 
 
@@ -97,7 +125,7 @@ int main(int argc, char** argv)
   bool runTest;
   bool dumpResults;
   bool useMaxOutDegreeStart;
-  if( !parseCmdLineSimple(argc, argv, "si-t-d-m|s", &inputFilename, &sourceVertex
+  if(!parseCmdLineSimple(argc, argv, "si-t-d-m|s", &inputFilename, &sourceVertex
     , &runTest, &dumpResults, &useMaxOutDegreeStart, &outputFilename) )
   {
     printf("Usage: sssp [-t] [-d] [-m] inputfile source [outputfile]\n");
@@ -121,7 +149,8 @@ int main(int argc, char** argv)
     //convert to CSR layout to find source vertex
     std::vector<int> srcOffsets(nVertices + 1);
     std::vector<int> csrSrcs(srcs.size());
-    edgeListToCSR<int>(nVertices, srcs.size(), &srcs[0], &dsts[0], &srcOffsets[0], 0, 0);
+    edgeListToCSR<int>(
+      nVertices, srcs.size(), &srcs[0], &dsts[0], &srcOffsets[0], 0, 0);
     int maxDegree = -1;
     sourceVertex = -1;
     for(int i = 0; i < nVertices; ++i)
@@ -133,9 +162,10 @@ int main(int argc, char** argv)
         sourceVertex = i;
       }
     }
-    printf("using vertex %d with degree %d as source\n", sourceVertex, maxDegree);
+    printf(
+      "using vertex %d with degree %d as source\n", sourceVertex, maxDegree);
   }
-  
+
 
   //initialize vertex data
   std::vector<int> vertexData(nVertices);
@@ -148,17 +178,39 @@ int main(int argc, char** argv)
   {
     printf("Running reference calculation\n");
     refVertexData = vertexData;
-    run< GASEngineRef<SSSP> >(nVertices, &refVertexData[0], (int)srcs.size()
-      , &edgeData[0], &srcs[0], &dsts[0]);
+    float elapsed = run< GASEngineRef<SSSP> >(sourceVertex, nVertices
+      , &refVertexData[0], (int)srcs.size(), &edgeData[0], &srcs[0], &dsts[0]);
     if( dumpResults )
     {
       printf("Reference:\n");
       outputDists(nVertices, &refVertexData[0]);
-    }  
+    }
   }
 
-  run< GASEngineGPU<SSSP> >(nVertices, &vertexData[0], (int)srcs.size()
-    , &edgeData[0], &srcs[0], &dsts[0]);
+  float elapsed = run< GASEngineGPU<SSSP> >(sourceVertex, nVertices
+    , &vertexData[0], (int)srcs.size(), &edgeData[0], &srcs[0], &dsts[0]);
+
+  // compute stats
+  long int nodes_visited = 0;
+  long int edges_visited = 0;
+  std::vector<int> srcOffsets(nVertices + 1);
+  std::vector<int> csrSrcs(srcs.size());
+  edgeListToCSR<int>(
+    nVertices, srcs.size(), &srcs[0], &dsts[0], &srcOffsets[0], 0, 0);
+
+  for (int itr = 0; itr < nVertices; ++itr)
+  {
+    if (vertexData.at(itr) < SSSP::gatherZero)
+    {
+      nodes_visited += 1;
+      edges_visited += srcOffsets.at(itr+1) - srcOffsets.at(itr);
+    }
+  }
+
+  printf("nodes visited: %d edges visited: %d\n", nodes_visited, edges_visited);
+  float m_teps = (float) edges_visited / (elapsed * 1000);
+  printf("elapsed: %.4f ms, MTEPS: %.4f MiEdges/s\n", elapsed, m_teps);
+
   if( dumpResults )
   {
     printf("GPU:\n");

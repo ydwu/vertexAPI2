@@ -49,7 +49,7 @@ template<typename Int>
 void indSort(int n, const Int* inData, Int* sortedIdx)
 {
   typedef std::pair<Int, Int> Pair;
-  
+
   struct PairCmp
   {
     static bool lt(const Pair &p1, const Pair &p2)
@@ -57,14 +57,14 @@ void indSort(int n, const Int* inData, Int* sortedIdx)
       return p1.first < p2.first;
     }
   };
-  
+
   std::vector<Pair> pairs(n);
   for( Int i = 0; i < n; ++i )
   {
     pairs[i].first  = inData[i];
     pairs[i].second = i;
   }
-  
+
   std::sort(pairs.begin(), pairs.end(), PairCmp::lt);
 
   for( Int i = 0; i < n; ++i )
@@ -116,9 +116,46 @@ void edgeListToCSC(Int nVertices, Int nEdges
   , const Int *srcs, const Int *dsts
   , Int *offsets, Int *outSrcs, Int* sortIndices)
 {
-  edgeListToCSR<Int>(nVertices, nEdges, dsts, srcs 
+  edgeListToCSR<Int>(nVertices, nEdges, dsts, srcs
     , offsets, outSrcs, sortIndices);
-};  
+};
 
+//use gpu timer
+struct GpuTimer
+{
+  cudaEvent_t start;
+  cudaEvent_t stop;
+
+  GpuTimer()
+  {
+    cudaEventCreate(&start);
+    cudaEventCreate(&stop);
+  }
+
+  ~GpuTimer()
+  {
+    cudaEventDestroy(start);
+    cudaEventDestroy(stop);
+  }
+
+  void Start()
+  {
+    cudaEventRecord(start, 0);
+  }
+
+  void Stop()
+  {
+    cudaEventRecord(stop, 0);
+  }
+
+  float ElapsedMillis()
+  {
+    float elapsed;
+    cudaEventSynchronize(stop);
+    cudaEventElapsedTime(&elapsed, start, stop);
+    return elapsed;
+  }
+
+};
 
 #endif
