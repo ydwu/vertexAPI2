@@ -68,16 +68,32 @@ void run(int nVertices, CC::VertexData* vertexData, int nEdges
        , const int* srcs, const int* dsts)
 {
   Engine engine;
+  GpuTimer gpu_timer;
+  int iteration = 0;
+
   engine.setGraph(nVertices, vertexData, nEdges, 0, srcs, dsts);
 
   //TODO, setting all vertices to active for first step works, but it would
   //be faster to instead set to neighbors of starting vertex
+
   engine.setActive(0, nVertices);
-  int64_t t0 = currentTime();
-  engine.run();
+
+  gpu_timer.Start();
+  while (engine.countActive())
+  {
+    engine.gatherApply();
+    engine.scatterActivate();
+    engine.nextIter();
+    ++iteration;
+  }
+
   engine.getResults();
-  int64_t t1 = currentTime();
-  printf("Took %f ms\n", (t1 - t0)/1000.0f);
+
+
+  gpu_timer.Stop();
+  float elapsed = gpu_timer.ElapsedMillis();
+  printf("iterations: %d\n", iteration);
+  printf("elapsed: %f ms", elapsed);
 }
 
 

@@ -43,7 +43,8 @@ struct PageRank
   static const float gatherZero = 0.0f;
 
   __host__ __device__
-  static float gatherMap(const VertexData* dst, const VertexData* src, const EdgeData* edge)
+  static float gatherMap(
+    const VertexData* dst, const VertexData* src, const EdgeData* edge)
   {
     //this division is being done too many times right?
     //should just store the normalized value in apply?
@@ -66,14 +67,16 @@ struct PageRank
   }
 
   __host__ __device__
-  static void scatter(const VertexData* src, const VertexData *dst, EdgeData* edge)
+  static void scatter(
+    const VertexData* src, const VertexData *dst, EdgeData* edge)
   {
     //nothing
   }
 };
 
 
-void outputRanks(int n, const PageRank::VertexData* vertexData, FILE* f = stdout)
+void outputRanks(
+  int n, const PageRank::VertexData* vertexData, FILE* f = stdout)
 {
   for( int i = 0; i < n; ++i )
   {
@@ -86,18 +89,43 @@ template<typename Engine>
 void run(int nVertices, PageRank::VertexData* vertexData, int nEdges
   , const int* srcs, const int* dsts)
 {
-  for( int i = 0; i < nVertices; ++i )
-    vertexData[i].rank = PageRank::pageConst;
-
   Engine engine;
-  engine.setGraph(nVertices, vertexData, nEdges, 0, srcs, dsts);
-  //all vertices begin active for pagerank
-  engine.setActive(0, nVertices);
-  int64_t t0 = currentTime();
-  engine.run();
-  engine.getResults();
-  int64_t t1 = currentTime();
-  printf("Took %f ms\n", (t1 - t0)/1000.0f);
+
+  GpuTimer gpu_timer;
+  float elapsed = 0.0f;
+  int iteration = 0;
+
+  // average elapsed time of 10 runs
+  int num_runs = 10;
+  for (int itr = 0; itr < num_runs; ++itr)
+  {
+    // reset graph
+    for( int i = 0; i < nVertices; ++i )
+      vertexData[i].rank = PageRank::pageConst;
+
+    engine.setGraph(nVertices, vertexData, nEdges, 0, srcs, dsts);
+    //all vertices begin active for pagerank
+    engine.setActive(0, nVertices);
+
+    gpu_timer.Start();
+
+    while (engine.countActive())
+    {
+      engine.gatherApply();
+      engine.scatterActivate();
+      engine.nextIter();
+      ++iteration;
+    }
+
+    engine.getResults();
+
+    gpu_timer.Stop();
+    elapsed += gpu_timer.ElapsedMillis();
+  }
+
+  elapsed /= num_runs;
+  printf("num_iteration: %d\n", iteration);
+  printf("elapsed: %f ms\n", elapsed);
 }
 
 
@@ -119,13 +147,15 @@ int main(int argc, char **argv)
   std::vector<int> srcs;
   std::vector<int> dsts;
   loadGraph(inputFilename, nVertices, srcs, dsts);
-  printf("loaded %s with %d vertices and %zd edges\n", inputFilename, nVertices, srcs.size());
+  printf("loaded %s with %d vertices and %zd edges\n"
+	 , inputFilename, nVertices, srcs.size());
 
   //initialize vertex data
   //convert to CSR to get the count of edges.
   std::vector<int> srcOffsets(nVertices + 1);
   std::vector<int> csrSrcs(srcs.size());
-  edgeListToCSR<int>(nVertices, srcs.size(), &srcs[0], &dsts[0], &srcOffsets[0], 0, 0);
+  edgeListToCSR<int>(
+    nVertices, srcs.size(), &srcs[0], &dsts[0], &srcOffsets[0], 0, 0);
 
   std::vector<PageRank::VertexData> vertexData(nVertices);
   for( int i = 0; i < nVertices; ++i )
@@ -136,7 +166,8 @@ int main(int argc, char **argv)
   {
     printf("Running reference calculation\n");
     refVertexData = vertexData;
-    run< GASEngineRef<PageRank> >(nVertices, &refVertexData[0], (int)srcs.size(), &srcs[0], &dsts[0]);
+    run< GASEngineRef<PageRank> >(
+      nVertices, &refVertexData[0], (int)srcs.size(), &srcs[0], &dsts[0]);
     if( dumpResults )
     {
       printf("Reference\n");
@@ -144,7 +175,8 @@ int main(int argc, char **argv)
     }
   }
 
-  run< GASEngineGPU<PageRank> >(nVertices, &vertexData[0], (int)srcs.size(), &srcs[0], &dsts[0]);
+  run< GASEngineGPU<PageRank> >(
+    nVertices, &vertexData[0], (int)srcs.size(), &srcs[0], &dsts[0]);
   if( dumpResults )
   {
     printf("GPU:\n");

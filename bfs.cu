@@ -101,10 +101,10 @@ float run(int nVertices, BFS::VertexData* vertexData, int nEdges
   float elapsed = 0.0f;
 
   // average elapsed time of 10 runs
-  for (int itr = 0; itr < 10; ++itr)
+  for (int itr = 0; itr < 1; ++itr)
   {
     // reset the graph
-    for(int i = 0; i < nVertices; ++i) vertexData[i].depth = -1;
+    for (int i = 0; i < nVertices; ++i) vertexData[i].depth = -1;
     engine.setGraph(nVertices, vertexData, nEdges, 0, &srcs[0], &dsts[0]);
     engine.setActive(sourceVertex, sourceVertex+1);
     iteration = 0;
@@ -112,13 +112,31 @@ float run(int nVertices, BFS::VertexData* vertexData, int nEdges
 
     gpu_timer.Start();
 
+    cudaEvent_t start, stop;
+    float time_per_iter = 0.0f;
+
+    printf("Iteration RunTime NumActiveVertices\n");
     while( engine.countActive() )
     {
+      int last_num_active = engine.countActive();
+      cudaEventCreate(&start);
+      cudaEventCreate(&stop);
+      cudaEventRecord(start, 0);
+
       //run apply without gather
       engine.gatherApply(false);
       engine.scatterActivate(false);
       engine.nextIter();
       setIterationCount<GPU>(++iteration);
+
+      cudaEventRecord(stop, 0);
+      cudaEventSynchronize(stop);
+      cudaEventElapsedTime(&time_per_iter, start, stop);
+      printf("--> %d RunTime: %f ActiveSize: %d\n",
+             iteration, time_per_iter, last_num_active);
+      time_per_iter = 0.0f;
+      cudaEventDestroy(start);
+      cudaEventDestroy(stop);
     }
     engine.getResults();
 
@@ -126,9 +144,8 @@ float run(int nVertices, BFS::VertexData* vertexData, int nEdges
     elapsed += gpu_timer.ElapsedMillis();
   }
 
-  elapsed /= 10;
-  // printf("Took %f ms\n", elapsed);
-  printf("search depth (number of iterations): %d\n", iteration);
+  elapsed /= 1;
+  printf("search_depth: %d\n", iteration);
   return elapsed;
 }
 
@@ -163,8 +180,6 @@ int main(int argc, char** argv)
 
   //initialize vertex data
   std::vector<BFS::VertexData> vertexData(nVertices);
-  for( int i = 0; i < nVertices; ++i )
-    vertexData[i].depth = -1;
 
   if( useMaxOutDegreeStart )
   {
@@ -221,7 +236,7 @@ int main(int argc, char** argv)
     }
   }
 
-  printf("nodes visited: %d edges visited: %d\n", nodes_visited, edges_visited);
+  printf("nodes_visited: %d edges_visited: %d\n", nodes_visited, edges_visited);
   float m_teps = (float) edges_visited / (elapsed * 1000);
   printf("elapsed: %.4f ms, MTEPS: %.4f MiEdges/s\n", elapsed, m_teps);
 

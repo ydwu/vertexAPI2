@@ -837,12 +837,14 @@ private:
     //easily roll their own loop.
     void run()
     {
+
       while( countActive() )
       {
         gatherApply();
         scatterActivate();
         nextIter();
       }
+
     }
 };
 

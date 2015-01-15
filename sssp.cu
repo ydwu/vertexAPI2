@@ -77,7 +77,7 @@ float run(int srcVertex, int nVertices, SSSP::VertexData* vertexData, int nEdges
   int iteration = 0;
 
   // average elapsed time of 10 runs
-  for (int itr = 0; itr < 10; ++itr)
+  for (int itr = 0; itr < 1; ++itr)
   {
     // reset the graph
     for(int i = 0; i < nVertices; ++i) vertexData[i] = SSSP::gatherZero;
@@ -90,11 +90,30 @@ float run(int srcVertex, int nVertices, SSSP::VertexData* vertexData, int nEdges
 
     gpu_timer.Start();
 
+    cudaEvent_t start, stop;
+    float time_per_iter = 0.0f;
+    printf("Iteration RunTime NumActiveVertices\n");
+
     while (engine.countActive())
     {
+      int last_num_active = engine.countActive();
+      cudaEventCreate(&start);
+      cudaEventCreate(&stop);
+      cudaEventRecord(start, 0);
+
       engine.gatherApply();
       engine.scatterActivate();
       engine.nextIter();
+
+      cudaEventRecord(stop, 0);
+      cudaEventSynchronize(stop);
+      cudaEventElapsedTime(&time_per_iter, start, stop);
+      printf("--> %d RunTime: %f ActiveSize: %d\n",
+             iteration, time_per_iter, last_num_active);
+      time_per_iter = 0.0f;
+      cudaEventDestroy(start);
+      cudaEventDestroy(stop);
+
       ++iteration;
     }
 
@@ -104,8 +123,8 @@ float run(int srcVertex, int nVertices, SSSP::VertexData* vertexData, int nEdges
     elapsed += gpu_timer.ElapsedMillis();
   }
 
-  elapsed /= 10;
-  printf("number of iterations: %d\n", iteration);
+  elapsed /= 1;
+  printf("search_depth: %d\n", iteration);
   return elapsed;
 }
 
@@ -207,9 +226,9 @@ int main(int argc, char** argv)
     }
   }
 
-  printf("nodes visited: %d edges visited: %d\n", nodes_visited, edges_visited);
+  printf("nodes_visited: %ld edges_visited: %ld\n",nodes_visited,edges_visited);
   float m_teps = (float) edges_visited / (elapsed * 1000);
-  printf("elapsed: %.4f ms, MTEPS: %.4f MiEdges/s\n", elapsed, m_teps);
+  printf("elapsed: %.3f ms, MTEPS: %.4f MiEdges/s\n", elapsed, m_teps);
 
   if( dumpResults )
   {
